@@ -26,6 +26,7 @@ class FlickVideoPlayer extends StatefulWidget {
     ],
     this.wakelockEnabled = true,
     this.wakelockEnabledFullscreen = true,
+    this.fullscreenEnabled = true,
     this.webKeyDownHandler = flickDefaultWebKeyDownHandler,
   }) : super(key: key);
 
@@ -64,6 +65,9 @@ class FlickVideoPlayer extends StatefulWidget {
   /// Callback called on keyDown for web, used for keyboard shortcuts.
   final Function(KeyboardEvent, FlickManager) webKeyDownHandler;
 
+  /// Whether fullscreen, the associated [OverlayEntry] and [WillPopScope] is enabled.
+  final bool fullscreenEnabled;
+
   @override
   _FlickVideoPlayerState createState() => _FlickVideoPlayerState();
 }
@@ -77,7 +81,7 @@ class _FlickVideoPlayerState extends State<FlickVideoPlayer> {
   void initState() {
     flickManager = widget.flickManager;
     flickManager.registerContext(context);
-    flickManager.flickControlManager!.addListener(listener);
+    flickManager.flickControlManager!.addListener(handleFullscreenToggle);
     _setSystemUIOverlays();
     _setPreferredOrientation();
 
@@ -95,8 +99,17 @@ class _FlickVideoPlayerState extends State<FlickVideoPlayer> {
   }
 
   @override
+  void didUpdateWidget(covariant FlickVideoPlayer oldWidget) {
+    if (oldWidget.fullscreenEnabled != widget.fullscreenEnabled) {
+      handleFullscreenToggle();
+    }
+
+    super.didUpdateWidget(oldWidget);
+  }
+
+  @override
   void dispose() {
-    flickManager.flickControlManager!.removeListener(listener);
+    flickManager.flickControlManager!.removeListener(handleFullscreenToggle);
     if (widget.wakelockEnabled) {
       Wakelock.disable();
     }
@@ -105,11 +118,13 @@ class _FlickVideoPlayerState extends State<FlickVideoPlayer> {
 
   // Listener on [FlickControlManager],
   // Pushes the full-screen if [FlickControlManager] is changed to full-screen.
-  void listener() async {
-    if (flickManager.flickControlManager!.isFullscreen && !_isFullscreen) {
+  void handleFullscreenToggle() async {
+    final shouldBeFullscreen = widget.fullscreenEnabled &&
+        flickManager.flickControlManager!.isFullscreen;
+
+    if (shouldBeFullscreen && !_isFullscreen) {
       _switchToFullscreen();
-    } else if (_isFullscreen &&
-        !flickManager.flickControlManager!.isFullscreen) {
+    } else if (_isFullscreen && !shouldBeFullscreen) {
       _exitFullscreen();
     }
   }
@@ -139,6 +154,7 @@ class _FlickVideoPlayerState extends State<FlickVideoPlayer> {
     });
 
     Overlay.of(context)!.insert(_overlayEntry!);
+    setState(() {});
   }
 
   _exitFullscreen() {
@@ -158,6 +174,8 @@ class _FlickVideoPlayerState extends State<FlickVideoPlayer> {
     _overlayEntry = null;
     _setPreferredOrientation();
     _setSystemUIOverlays();
+
+    setState(() {});
   }
 
   _setPreferredOrientation() {
@@ -199,13 +217,12 @@ class _FlickVideoPlayerState extends State<FlickVideoPlayer> {
   @override
   Widget build(BuildContext context) {
     return WillPopScope(
-      onWillPop: () {
-        if (_overlayEntry != null) {
-          flickManager.flickControlManager!.exitFullscreen();
-          return Future.value(false);
-        }
-        return Future.value(true);
-      },
+      onWillPop: _overlayEntry != null
+          ? () {
+              flickManager.flickControlManager!.exitFullscreen();
+              return Future.value(false);
+            }
+          : null,
       child: FlickManagerBuilder(
         flickManager: flickManager,
         child: widget.flickVideoWithControls,
